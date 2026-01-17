@@ -1,7 +1,7 @@
 (() => {
   // ====== CONFIG (fill these in) ======
-  const SUPABASE_URL = https://jznbofjdpawonjajbpcc.supabase.co;
-  const SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp6bmJvZmpkcGF3b25qYWpicGNjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2ODM5NjUsImV4cCI6MjA4NDI1OTk2NX0.IinYTuCmJApablKk7O6oJKJ9rDKagG3ZsDIisrWzxxI;
+  const SUPABASE_URL = "https://jznbofjdpawonjajbpcc.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp6bmJvZmpkcGF3b25qYWpicGNjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2ODM5NjUsImV4cCI6MjA4NDI1OTk2NX0.IinYTuCmJApablKk7O6oJKJ9rDKagG3ZsDIisrWzxxI";
 
   // If you truly want *no* auth tokens stored in localStorage,
   // set persistSession=false (you'll need to log in again on refresh).
