@@ -1,32 +1,29 @@
 (() => {
-  // ---- Storage helpers ----
-  const LS_KEY = "wt_v1";
-  const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+  // ====== CONFIG (fill these in) ======
+  const SUPABASE_URL = https://jznbofjdpawonjajbpcc.supabase.co;
+  const SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp6bmJvZmpkcGF3b25qYWpicGNjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2ODM5NjUsImV4cCI6MjA4NDI1OTk2NX0.IinYTuCmJApablKk7O6oJKJ9rDKagG3ZsDIisrWzxxI;
 
-  function loadState() {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) {
-      const fresh = { exercises: [], workouts: [], draftId: null };
-      localStorage.setItem(LS_KEY, JSON.stringify(fresh));
-      return fresh;
-    }
-    try {
-      const parsed = JSON.parse(raw);
-      return {
-        exercises: Array.isArray(parsed.exercises) ? parsed.exercises : [],
-        workouts: Array.isArray(parsed.workouts) ? parsed.workouts : [],
-        draftId: typeof parsed.draftId === "string" ? parsed.draftId : null,
-      };
-    } catch {
-      const fresh = { exercises: [], workouts: [], draftId: null };
-      localStorage.setItem(LS_KEY, JSON.stringify(fresh));
-      return fresh;
-    }
-  }
+  // If you truly want *no* auth tokens stored in localStorage,
+  // set persistSession=false (you'll need to log in again on refresh).
+  // Supabase supports client options like persistSession. (See docs examples.) 
+  // const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
 
-  function saveState(state) {
-    localStorage.setItem(LS_KEY, JSON.stringify(state));
+  // ====== Supabase client ======
+  if (!window.supabase || !window.supabase.createClient) {
+    document.body.innerHTML =
+      "<div style='padding:16px;font-family:system-ui'>Supabase JS not loaded. Check index.html script order.</div>";
+    return;
   }
+  const { createClient } = window.supabase;
+  const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // ====== App state (stored remotely in public.app_state.state jsonb) ======
+  const app = document.getElementById("app");
+  let currentUser = null;
+  let stateCache = null;
+  let saveTimer = null;
+
+  const freshState = () => ({ exercises: [], workouts: [], draftId: null });
 
   function todayLocalISODate() {
     const d = new Date();
@@ -39,92 +36,29 @@
   function formatDate(iso) {
     const [y, m, d] = iso.split("-").map(Number);
     const dt = new Date(y, m - 1, d);
-    return dt.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+    return dt.toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
   }
 
-  // ---- Workout logic ----
-  function getOrCreateTodayDraft(state) {
-    const today = todayLocalISODate();
-
-    if (state.draftId) {
-      const found = state.workouts.find(w => w.id === state.draftId && w.status === "draft");
-      if (found && found.date === today) return normalizeWorkout(found);
-    }
-
-    const existing = state.workouts.find(w => w.status === "draft" && w.date === today);
-    if (existing) {
-      state.draftId = existing.id;
-      saveState(state);
-      return normalizeWorkout(existing);
-    }
-
-    const workout = {
-      id: uid(),
-      date: today,
-      name: "",               // <-- NEW (workout label like "Push Day")
-      status: "draft",
-      createdAt: Date.now(),
-      exercises: [],
-    };
-    state.workouts.push(workout);
-    state.draftId = workout.id;
-    saveState(state);
-    return normalizeWorkout(workout);
+  function uid() {
+    return Math.random().toString(36).slice(2) + Date.now().toString(36);
   }
 
-  function normalizeWorkout(w) {
-    if (!w) return w;
-    if (typeof w.name !== "string") w.name = "";
-    if (!Array.isArray(w.exercises)) w.exercises = [];
-    return w;
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (m) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;",
+    }[m]));
   }
-
-  function updateWorkoutName(workoutId, name) {
-    const st = loadState();
-    const w = st.workouts.find(x => x.id === workoutId);
-    if (!w) return;
-    w.name = String(name || "").trim();
-    saveState(st);
-  }
-
-  function completeDraftWorkout(state, workoutId) {
-    const w = state.workouts.find(x => x.id === workoutId);
-    if (!w) return;
-    w.status = "completed";
-    w.completedAt = Date.now();
-    state.draftId = null;
-    saveState(state);
-  }
-
-  function addExerciseToLibrary(state, name) {
-    const clean = name.trim();
-    if (!clean) return;
-    const exists = state.exercises.some(x => x.toLowerCase() === clean.toLowerCase());
-    if (!exists) {
-      state.exercises.push(clean);
-      state.exercises.sort((a, b) => a.localeCompare(b));
-      saveState(state);
-    }
-  }
-
-  function findLastTimeForExercise(state, exerciseName, excludeWorkoutId) {
-    const target = exerciseName.trim().toLowerCase();
-    const completed = state.workouts
-      .filter(w => w.status === "completed" && w.id !== excludeWorkoutId)
-      .sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
-
-    for (const w of completed) {
-      const ex = (w.exercises || []).slice().reverse().find(e => (e.name || "").trim().toLowerCase() === target);
-      if (ex) return { workout: w, exercise: ex };
-    }
-    return null;
-  }
-
-  // ---- Simple router ----
-  const app = document.getElementById("app");
-
-  function nav(hash) {
-    location.hash = hash;
+  function escapeAttr(str) {
+    return escapeHtml(str).replace(/"/g, "&quot;");
   }
 
   function getRoute() {
@@ -132,49 +66,208 @@
     const parts = h.split("/").filter(Boolean);
     return { name: parts[0] || "home", parts };
   }
-
-  window.addEventListener("hashchange", render);
-  render();
-
-  // ---- Views ----
-  function render() {
-    const state = loadState();
-    const route = getRoute();
-
-    if (route.name === "home") return renderHome(state);
-    if (route.name === "workout") return renderWorkout(state);
-    if (route.name === "history") return renderHistory(state);
-    if (route.name === "view" && route.parts[1]) return renderWorkoutDetails(state, route.parts[1]);
-
-    nav("#home");
+  function nav(hash) {
+    location.hash = hash;
   }
 
+  // ====== Remote load/save ======
+  async function ensureUser() {
+    const { data } = await sb.auth.getSession();
+    currentUser = data?.session?.user || null;
+    return currentUser;
+  }
+
+  async function loadRemoteState(userId) {
+    const { data, error } = await sb
+      .from("app_state")
+      .select("state")
+      .eq("user_id", userId);
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      const initial = freshState();
+      const ins = await sb.from("app_state").insert({ user_id: userId, state: initial });
+      if (ins.error) throw ins.error;
+      return initial;
+    }
+
+    const s = data[0]?.state;
+    return (s && typeof s === "object") ? s : freshState();
+  }
+
+  async function saveRemoteStateNow() {
+    if (!currentUser || !stateCache) return;
+    const payload = { user_id: currentUser.id, state: stateCache };
+
+    const { error } = await sb.from("app_state").upsert(payload);
+    if (error) {
+      console.error("Save failed:", error.message);
+    }
+  }
+
+  function queueSave(ms = 600) {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveRemoteStateNow();
+    }, ms);
+  }
+
+  // ====== Workout logic (same structure as before) ======
+  function normalizeWorkout(w) {
+    if (!w) return w;
+    if (typeof w.name !== "string") w.name = "";
+    if (!Array.isArray(w.exercises)) w.exercises = [];
+    return w;
+  }
+
+  function getOrCreateTodayDraft() {
+    const today = todayLocalISODate();
+    const st = stateCache;
+
+    if (st.draftId) {
+      const found = st.workouts.find((w) => w.id === st.draftId && w.status === "draft");
+      if (found && found.date === today) return normalizeWorkout(found);
+    }
+
+    const existing = st.workouts.find((w) => w.status === "draft" && w.date === today);
+    if (existing) {
+      st.draftId = existing.id;
+      queueSave();
+      return normalizeWorkout(existing);
+    }
+
+    const workout = {
+      id: uid(),
+      date: today,
+      name: "",
+      status: "draft",
+      createdAt: Date.now(),
+      exercises: [],
+    };
+    st.workouts.push(workout);
+    st.draftId = workout.id;
+    queueSave();
+    return normalizeWorkout(workout);
+  }
+
+  function addExerciseToLibrary(name) {
+    const clean = name.trim();
+    if (!clean) return;
+    const exists = stateCache.exercises.some((x) => x.toLowerCase() === clean.toLowerCase());
+    if (!exists) {
+      stateCache.exercises.push(clean);
+      stateCache.exercises.sort((a, b) => a.localeCompare(b));
+      queueSave();
+    }
+  }
+
+  function findLastTimeForExercise(exerciseName, excludeWorkoutId) {
+    const target = exerciseName.trim().toLowerCase();
+    const completed = stateCache.workouts
+      .filter((w) => w.status === "completed" && w.id !== excludeWorkoutId)
+      .sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+
+    for (const w of completed) {
+      const ex = (w.exercises || []).slice().reverse().find((e) => (e.name || "").trim().toLowerCase() === target);
+      if (ex) return { workout: w, exercise: ex };
+    }
+    return null;
+  }
+
+  function renderSetsLine(sets) {
+    if (!Array.isArray(sets) || sets.length === 0) return "No sets";
+    return sets.map((s, i) => `Set ${i + 1}: ${s.reps} reps @ ${s.weight}`).join(" • ");
+  }
+
+  function toNumberOrNull(v) {
+    const s = String(v ?? "").trim();
+    if (!s) return null;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  // ====== UI shell ======
   function shell({ title, subtitle, leftBtn, rightBtn, body }) {
     app.innerHTML = `
       <div class="container">
         <div class="header">
-          <div style="width:120px;">
-            ${leftBtn || ""}
-          </div>
+          <div style="width:120px;">${leftBtn || ""}</div>
           <div class="hgroup" style="text-align:center; flex:1;">
             <div class="title">${escapeHtml(title)}</div>
             ${subtitle ? `<div class="subtitle">${escapeHtml(subtitle)}</div>` : ""}
           </div>
-          <div style="width:120px; display:flex; justify-content:flex-end;">
-            ${rightBtn || ""}
-          </div>
+          <div style="width:120px; display:flex; justify-content:flex-end;">${rightBtn || ""}</div>
         </div>
         ${body}
       </div>
     `;
   }
 
-  function renderHome(state) {
+  // ====== Auth UI ======
+  function renderAuth() {
     shell({
       title: "Workout Tracker",
-      subtitle: "Quick logging. Saved on this device.",
+      subtitle: "Sign in to sync workouts",
       leftBtn: "",
       rightBtn: "",
+      body: `
+        <div class="card">
+          <div class="label">Email</div>
+          <input id="email" type="email" placeholder="you@example.com" />
+          <div class="hr"></div>
+          <div class="label">Password</div>
+          <input id="password" type="password" placeholder="••••••••" />
+          <div class="hr"></div>
+          <div class="row">
+            <button class="btn primary" id="signIn" style="text-align:center;">Sign in</button>
+            <button class="btn" id="signUp" style="text-align:center;">Sign up</button>
+          </div>
+          <div class="small" id="authMsg" style="margin-top:10px;"></div>
+        </div>
+      `,
+    });
+
+    const msg = document.getElementById("authMsg");
+    const getCreds = () => ({
+      email: (document.getElementById("email").value || "").trim(),
+      password: (document.getElementById("password").value || "").trim(),
+    });
+
+    document.getElementById("signIn").onclick = async () => {
+      const { email, password } = getCreds();
+      msg.textContent = "Signing in...";
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) msg.textContent = error.message;
+      else msg.textContent = "";
+      await boot();
+    };
+
+    document.getElementById("signUp").onclick = async () => {
+      const { email, password } = getCreds();
+      msg.textContent = "Creating account...";
+      const { error, data } = await sb.auth.signUp({
+        email,
+        password,
+        options: { emailRedirectTo: window.location.href },
+      });
+      if (error) {
+        msg.textContent = error.message;
+        return;
+      }
+      // If email confirmation is enabled, session may be null until confirmed.
+      msg.textContent = data?.session ? "Signed up and logged in!" : "Check your email to confirm your account.";
+      await boot();
+    };
+  }
+
+  // ====== Views ======
+  function renderHome() {
+    shell({
+      title: "Workout Tracker",
+      subtitle: "Synced with Supabase",
+      leftBtn: "",
+      rightBtn: `<button class="btn" id="signOut" style="padding:10px; text-align:center;">Sign out</button>`,
       body: `
         <div class="card">
           <div class="grid2">
@@ -188,33 +281,30 @@
             </button>
           </div>
         </div>
-
-        <div class="notice">
-          Data is stored in <kbd>localStorage</kbd>. Clearing browser data will remove it.
-        </div>
       `,
     });
 
     document.getElementById("goStart").onclick = () => nav("#workout");
     document.getElementById("goHistory").onclick = () => nav("#history");
+    document.getElementById("signOut").onclick = async () => {
+      await sb.auth.signOut();
+      currentUser = null;
+      stateCache = null;
+      nav("#home");
+      render();
+    };
   }
 
-  function renderWorkout(state) {
-    const workout = getOrCreateTodayDraft(state);
+  function renderWorkout() {
+    const workout = getOrCreateTodayDraft();
 
-    // Draft exercise editor state (in-memory)
     let currentExercise = null; // { name, sets:[{reps,weight}] }
     let lastTimeData = null;
 
-    function rerender() {
-      // refresh from storage so name stays synced
-      const freshState = loadState();
-      const freshWorkout = normalizeWorkout(freshState.workouts.find(w => w.id === workout.id)) || workout;
-      workout.name = freshWorkout.name;
-      workout.exercises = freshWorkout.exercises;
+    const rerender = () => {
+      const suggestions = stateCache.exercises.map((x) => `<option value="${escapeAttr(x)}"></option>`).join("");
 
-      const suggestions = freshState.exercises.map(x => `<option value="${escapeAttr(x)}"></option>`).join("");
-      const completed = (workout.exercises || []).map(ex => {
+      const completed = (workout.exercises || []).map((ex) => {
         const sets = (ex.sets || []).map((s, i) => `Set ${i + 1}: ${s.reps} reps @ ${s.weight}`).join(" • ");
         return `
           <div class="item">
@@ -234,6 +324,8 @@
           </td>
         </tr>
       `).join("");
+
+      const canShowLast = !!(currentExercise && findLastTimeForExercise(currentExercise.name, workout.id));
 
       const lastTimeBlock = lastTimeData ? `
         <div class="card" style="margin-top:10px;">
@@ -285,7 +377,7 @@
                   <div class="small">Add sets, then complete this exercise.</div>
                 </div>
                 <div style="max-width:160px;">
-                  <button class="btn" id="lastTimeBtn" style="text-align:center;" ${canShowLastTime(freshState, currentExercise.name, workout.id) ? "" : "disabled"}>Last time</button>
+                  <button class="btn" id="lastTimeBtn" style="text-align:center;" ${canShowLast ? "" : "disabled"}>Last time</button>
                 </div>
               </div>
 
@@ -336,38 +428,33 @@
         `,
       });
 
-      // Name input
-      const nameInput = document.getElementById("workoutName");
-      nameInput.oninput = () => {
-        updateWorkoutName(workout.id, nameInput.value);
+      document.getElementById("backHome").onclick = () => nav("#home");
+
+      document.getElementById("workoutName").oninput = (e) => {
+        workout.name = e.target.value.trim();
+        queueSave();
       };
 
-      // Wire header buttons
-      document.getElementById("backHome").onclick = () => nav("#home");
-      document.getElementById("finishWorkout").onclick = () => {
-        const st = loadState();
-        completeDraftWorkout(st, workout.id);
+      document.getElementById("finishWorkout").onclick = async () => {
+        workout.status = "completed";
+        workout.completedAt = Date.now();
+        stateCache.draftId = null;
+        await saveRemoteStateNow();
         nav(`#view/${workout.id}`);
       };
 
-      document.getElementById("discardDraft").onclick = () => {
-        const st = loadState();
-        st.workouts = st.workouts.filter(w => w.id !== workout.id);
-        if (st.draftId === workout.id) st.draftId = null;
-        saveState(st);
+      document.getElementById("discardDraft").onclick = async () => {
+        stateCache.workouts = stateCache.workouts.filter((w) => w.id !== workout.id);
+        if (stateCache.draftId === workout.id) stateCache.draftId = null;
+        await saveRemoteStateNow();
         nav("#home");
       };
 
-      // Start Exercise
-      const startBtn = document.getElementById("startExercise");
-      const input = document.getElementById("exerciseInput");
-      startBtn.onclick = () => {
+      document.getElementById("startExercise").onclick = () => {
+        const input = document.getElementById("exerciseInput");
         const name = (input.value || "").trim();
         if (!name) return;
-
-        const st = loadState();
-        addExerciseToLibrary(st, name);
-
+        addExerciseToLibrary(name);
         currentExercise = { name, sets: [{ reps: "", weight: "" }] };
         lastTimeData = null;
         input.value = "";
@@ -380,7 +467,7 @@
           rerender();
         };
 
-        app.querySelectorAll("[data-remove-set]").forEach(btn => {
+        app.querySelectorAll("[data-remove-set]").forEach((btn) => {
           btn.onclick = () => {
             const i = Number(btn.getAttribute("data-remove-set"));
             currentExercise.sets.splice(i, 1);
@@ -389,13 +476,13 @@
           };
         });
 
-        app.querySelectorAll("input[data-set-reps]").forEach(el => {
+        app.querySelectorAll("input[data-set-reps]").forEach((el) => {
           el.addEventListener("input", () => {
             const i = Number(el.getAttribute("data-set-reps"));
             currentExercise.sets[i].reps = el.value;
           });
         });
-        app.querySelectorAll("input[data-set-weight]").forEach(el => {
+        app.querySelectorAll("input[data-set-weight]").forEach((el) => {
           el.addEventListener("input", () => {
             const i = Number(el.getAttribute("data-set-weight"));
             currentExercise.sets[i].weight = el.value;
@@ -404,8 +491,7 @@
 
         const lastBtn = document.getElementById("lastTimeBtn");
         lastBtn.onclick = () => {
-          const st = loadState();
-          lastTimeData = findLastTimeForExercise(st, currentExercise.name, workout.id);
+          lastTimeData = findLastTimeForExercise(currentExercise.name, workout.id);
           rerender();
         };
 
@@ -418,50 +504,42 @@
 
         document.getElementById("completeExercise").onclick = () => {
           const cleanedSets = currentExercise.sets
-            .map(s => ({ reps: toNumberOrNull(s.reps), weight: toNumberOrNull(s.weight) }))
-            .filter(s => s.reps !== null || s.weight !== null);
+            .map((s) => ({ reps: toNumberOrNull(s.reps), weight: toNumberOrNull(s.weight) }))
+            .filter((s) => s.reps !== null || s.weight !== null);
 
-          if (cleanedSets.length === 0) {
-            currentExercise.sets = [{ reps: "", weight: "" }];
-            rerender();
-            return;
-          }
+          if (cleanedSets.length === 0) return;
 
           for (const s of cleanedSets) {
             if (s.reps !== null && s.reps < 0) return;
             if (s.weight !== null && s.weight < 0) return;
           }
 
-          const st = loadState();
-          const w = st.workouts.find(x => x.id === workout.id);
-          if (!w) return;
-
-          w.exercises = w.exercises || [];
-          w.exercises.push({
+          workout.exercises = workout.exercises || [];
+          workout.exercises.push({
             name: currentExercise.name.trim(),
-            sets: cleanedSets.map(s => ({ reps: s.reps ?? 0, weight: s.weight ?? 0 })),
+            sets: cleanedSets.map((s) => ({ reps: s.reps ?? 0, weight: s.weight ?? 0 })),
             completedAt: Date.now(),
           });
 
-          saveState(st);
+          queueSave();
 
           currentExercise = null;
           lastTimeData = null;
           rerender();
         };
       }
-    }
+    };
 
     rerender();
   }
 
-  function renderHistory(state) {
-    const completed = state.workouts
-      .filter(w => w.status === "completed")
+  function renderHistory() {
+    const completed = stateCache.workouts
+      .filter((w) => w.status === "completed")
       .map(normalizeWorkout)
       .sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
 
-    const listHtml = completed.map(w => {
+    const listHtml = completed.map((w) => {
       const title = w.name ? w.name : formatDate(w.date);
       const metaParts = [];
       if (w.name) metaParts.push(formatDate(w.date));
@@ -478,7 +556,7 @@
       title: "History",
       subtitle: completed.length ? `${completed.length} workout(s)` : "No workouts yet",
       leftBtn: `<button class="btn" id="backHome" style="padding:10px; text-align:center;">Home</button>`,
-      rightBtn: `<button class="btn danger" id="clearAll" style="padding:10px; text-align:center;">Clear</button>`,
+      rightBtn: "",
       body: `
         <div class="card">
           <div class="list">
@@ -489,21 +567,16 @@
     });
 
     document.getElementById("backHome").onclick = () => nav("#home");
-    document.getElementById("clearAll").onclick = () => {
-      localStorage.removeItem(LS_KEY);
-      nav("#home");
-    };
-
-    app.querySelectorAll("[data-open]").forEach(btn => {
+    app.querySelectorAll("[data-open]").forEach((btn) => {
       btn.onclick = () => nav(`#view/${btn.getAttribute("data-open")}`);
     });
   }
 
-  function renderWorkoutDetails(state, id) {
-    const w = normalizeWorkout(state.workouts.find(x => x.id === id));
+  function renderWorkoutDetails(id) {
+    const w = normalizeWorkout(stateCache.workouts.find((x) => x.id === id));
     if (!w) return nav("#history");
 
-    const exHtml = (w.exercises || []).map(ex => {
+    const exHtml = (w.exercises || []).map((ex) => {
       const rows = (ex.sets || []).map((s, i) => `
         <tr>
           <td style="width:70px;">${i + 1}</td>
@@ -541,13 +614,6 @@
 
           <div class="hr"></div>
 
-          <div class="row">
-            <div class="pill">${escapeHtml(w.status === "completed" ? "Completed" : "Draft")}</div>
-            <div class="pill">${(w.exercises || []).length} exercise(s)</div>
-          </div>
-
-          <div class="hr"></div>
-
           <div class="list">
             ${exHtml || `<div class="small">No exercises in this workout.</div>`}
           </div>
@@ -557,43 +623,50 @@
 
     document.getElementById("backHistory").onclick = () => nav("#history");
 
-    document.getElementById("deleteWorkout").onclick = () => {
-      const st = loadState();
-      st.workouts = st.workouts.filter(x => x.id !== id);
-      if (st.draftId === id) st.draftId = null;
-      saveState(st);
+    document.getElementById("detailsName").oninput = (e) => {
+      w.name = e.target.value.trim();
+      queueSave();
+    };
+
+    document.getElementById("deleteWorkout").onclick = async () => {
+      stateCache.workouts = stateCache.workouts.filter((x) => x.id !== id);
+      if (stateCache.draftId === id) stateCache.draftId = null;
+      await saveRemoteStateNow();
       nav("#history");
     };
-
-    const detailsName = document.getElementById("detailsName");
-    detailsName.oninput = () => {
-      updateWorkoutName(id, detailsName.value);
-    };
   }
 
-  // ---- Helpers ----
-  function canShowLastTime(state, exerciseName, currentWorkoutId) {
-    return !!findLastTimeForExercise(state, exerciseName, currentWorkoutId);
+  // ====== Main render ======
+  async function render() {
+    const user = await ensureUser();
+    const route = getRoute();
+
+    if (!user) {
+      // lock app behind auth for true persistence
+      if (route.name !== "home") nav("#home");
+      renderAuth();
+      return;
+    }
+
+    if (!stateCache) {
+      shell({ title: "Loading...", subtitle: "", leftBtn: "", rightBtn: "", body: `<div class="card"><div class="small">Loading your data…</div></div>` });
+      stateCache = await loadRemoteState(user.id);
+    }
+
+    if (route.name === "home") return renderHome();
+    if (route.name === "workout") return renderWorkout();
+    if (route.name === "history") return renderHistory();
+    if (route.name === "view" && route.parts[1]) return renderWorkoutDetails(route.parts[1]);
+
+    nav("#home");
+    renderHome();
   }
 
-  function renderSetsLine(sets) {
-    if (!Array.isArray(sets) || sets.length === 0) return "No sets";
-    return sets.map((s, i) => `Set ${i + 1}: ${s.reps} reps @ ${s.weight}`).join(" • ");
+  async function boot() {
+    stateCache = null;
+    await render();
   }
 
-  function toNumberOrNull(v) {
-    const s = String(v ?? "").trim();
-    if (!s) return null;
-    const n = Number(s);
-    return Number.isFinite(n) ? n : null;
-  }
-
-  function escapeHtml(str) {
-    return String(str).replace(/[&<>"']/g, m => ({
-      "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"
-    }[m]));
-  }
-  function escapeAttr(str) {
-    return escapeHtml(str).replace(/"/g, "&quot;");
-  }
+  window.addEventListener("hashchange", render);
+  boot();
 })();
