@@ -1,0 +1,227 @@
+:root{
+  --bg:#0b0d10;
+  --card:#12161c;
+  --muted:#98a2b3;
+  --text:#e6eaf0;
+  --accent:#4da3ff;
+  --danger:#ff5a6a;
+  --ok:#2ee59d;
+  --border:rgba(255,255,255,.08);
+  --shadow: 0 10px 30px rgba(0,0,0,.35);
+  --radius: 16px;
+}
+
+*{ box-sizing:border-box; }
+html,body{ height:100%; }
+body{
+  margin:0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji";
+  background: radial-gradient(1200px 700px at 20% -10%, rgba(77,163,255,.18), transparent 60%),
+              radial-gradient(900px 600px at 80% 0%, rgba(46,229,157,.10), transparent 55%),
+              var(--bg);
+  color:var(--text);
+}
+
+.app{
+  min-height:100%;
+  display:flex;
+  justify-content:center;
+  padding:18px 12px 40px;
+}
+
+.container{
+  width:100%;
+  max-width:560px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+.header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:6px 2px;
+}
+
+.hgroup{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+
+.title{
+  font-size:20px;
+  font-weight:700;
+  letter-spacing:.2px;
+}
+.subtitle{
+  font-size:13px;
+  color:var(--muted);
+}
+
+.card{
+  background: linear-gradient(180deg, rgba(255,255,255,.04), transparent 40%), var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  padding:14px;
+}
+
+.grid2{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
+}
+@media (max-width:420px){
+  .grid2{ grid-template-columns:1fr; }
+}
+
+.btn{
+  appearance:none;
+  border:none;
+  border-radius:14px;
+  padding:14px 14px;
+  font-weight:700;
+  font-size:16px;
+  color:var(--text);
+  background: rgba(255,255,255,.06);
+  border:1px solid var(--border);
+  cursor:pointer;
+  width:100%;
+  text-align:left;
+}
+.btn:hover{ background: rgba(255,255,255,.09); }
+.btn.primary{
+  background: rgba(77,163,255,.18);
+  border-color: rgba(77,163,255,.35);
+}
+.btn.primary:hover{ background: rgba(77,163,255,.24); }
+.btn.danger{
+  background: rgba(255,90,106,.14);
+  border-color: rgba(255,90,106,.30);
+}
+.btn.danger:hover{ background: rgba(255,90,106,.20); }
+.btn.ok{
+  background: rgba(46,229,157,.14);
+  border-color: rgba(46,229,157,.28);
+}
+.btn.ok:hover{ background: rgba(46,229,157,.20); }
+
+.row{
+  display:flex;
+  gap:10px;
+  align-items:center;
+}
+.row.wrap{ flex-wrap:wrap; }
+.row > *{ flex:1; }
+
+.small{
+  font-size:13px;
+  color:var(--muted);
+}
+
+.label{
+  font-size:13px;
+  color:var(--muted);
+  margin-bottom:6px;
+}
+
+input, select{
+  width:100%;
+  padding:12px 12px;
+  border-radius:12px;
+  border:1px solid var(--border);
+  background: rgba(255,255,255,.04);
+  color:var(--text);
+  outline:none;
+}
+input::placeholder{ color: rgba(152,162,179,.75); }
+
+.hr{
+  height:1px;
+  background:var(--border);
+  margin:12px 0;
+}
+
+.list{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.item{
+  padding:12px;
+  border-radius:14px;
+  border:1px solid var(--border);
+  background: rgba(255,255,255,.03);
+}
+
+.item h4{
+  margin:0;
+  font-size:15px;
+}
+.item .meta{
+  margin-top:4px;
+  font-size:13px;
+  color:var(--muted);
+}
+
+.pill{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid var(--border);
+  background: rgba(255,255,255,.03);
+  font-size:12px;
+  color:var(--muted);
+}
+
+.table{
+  width:100%;
+  border-collapse:collapse;
+  overflow:hidden;
+  border-radius:12px;
+  border:1px solid var(--border);
+}
+.table th, .table td{
+  padding:10px 10px;
+  border-bottom:1px solid var(--border);
+  font-size:14px;
+}
+.table th{
+  text-align:left;
+  color:var(--muted);
+  font-weight:700;
+  background: rgba(255,255,255,.02);
+}
+.table tr:last-child td{ border-bottom:none; }
+
+.actions{
+  display:flex;
+  gap:10px;
+}
+.actions .btn{
+  text-align:center;
+}
+
+.notice{
+  border:1px dashed rgba(77,163,255,.35);
+  background: rgba(77,163,255,.08);
+  border-radius:14px;
+  padding:12px;
+  color: rgba(230,234,240,.92);
+  font-size:13px;
+}
+
+kbd{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  padding:2px 6px;
+  border-radius:8px;
+  border:1px solid var(--border);
+  background: rgba(255,255,255,.03);
+}
