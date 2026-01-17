@@ -37,7 +37,6 @@
   }
 
   function formatDate(iso) {
-    // iso is YYYY-MM-DD
     const [y, m, d] = iso.split("-").map(Number);
     const dt = new Date(y, m - 1, d);
     return dt.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
@@ -47,32 +46,45 @@
   function getOrCreateTodayDraft(state) {
     const today = todayLocalISODate();
 
-    // Try resume draftId
     if (state.draftId) {
       const found = state.workouts.find(w => w.id === state.draftId && w.status === "draft");
-      if (found && found.date === today) return found;
+      if (found && found.date === today) return normalizeWorkout(found);
     }
 
-    // Try find any draft for today
     const existing = state.workouts.find(w => w.status === "draft" && w.date === today);
     if (existing) {
       state.draftId = existing.id;
       saveState(state);
-      return existing;
+      return normalizeWorkout(existing);
     }
 
-    // Create new
     const workout = {
       id: uid(),
       date: today,
+      name: "",               // <-- NEW (workout label like "Push Day")
       status: "draft",
       createdAt: Date.now(),
-      exercises: [], // { name, sets:[{reps,weight}], completedAt }
+      exercises: [],
     };
     state.workouts.push(workout);
     state.draftId = workout.id;
     saveState(state);
-    return workout;
+    return normalizeWorkout(workout);
+  }
+
+  function normalizeWorkout(w) {
+    if (!w) return w;
+    if (typeof w.name !== "string") w.name = "";
+    if (!Array.isArray(w.exercises)) w.exercises = [];
+    return w;
+  }
+
+  function updateWorkoutName(workoutId, name) {
+    const st = loadState();
+    const w = st.workouts.find(x => x.id === workoutId);
+    if (!w) return;
+    w.name = String(name || "").trim();
+    saveState(st);
   }
 
   function completeDraftWorkout(state, workoutId) {
@@ -192,12 +204,17 @@
 
     // Draft exercise editor state (in-memory)
     let currentExercise = null; // { name, sets:[{reps,weight}] }
-    let showLastTime = false;
     let lastTimeData = null;
 
     function rerender() {
-      const suggestions = state.exercises.map(x => `<option value="${escapeAttr(x)}"></option>`).join("");
-      const completed = (workout.exercises || []).map((ex, idx) => {
+      // refresh from storage so name stays synced
+      const freshState = loadState();
+      const freshWorkout = normalizeWorkout(freshState.workouts.find(w => w.id === workout.id)) || workout;
+      workout.name = freshWorkout.name;
+      workout.exercises = freshWorkout.exercises;
+
+      const suggestions = freshState.exercises.map(x => `<option value="${escapeAttr(x)}"></option>`).join("");
+      const completed = (workout.exercises || []).map(ex => {
         const sets = (ex.sets || []).map((s, i) => `Set ${i + 1}: ${s.reps} reps @ ${s.weight}`).join(" • ");
         return `
           <div class="item">
@@ -235,12 +252,18 @@
       ` : "";
 
       shell({
-        title: "Start Workout",
+        title: workout.name ? workout.name : "Start Workout",
         subtitle: formatDate(workout.date),
         leftBtn: `<button class="btn" id="backHome" style="padding:10px; text-align:center;">Home</button>`,
         rightBtn: `<button class="btn ok" id="finishWorkout" style="padding:10px; text-align:center;">Finish</button>`,
         body: `
           <div class="card">
+            <div class="label">Workout name (optional)</div>
+            <input id="workoutName" placeholder="e.g., Push Day" value="${escapeAttr(workout.name || "")}" />
+            <div class="small" style="margin-top:6px;">Date stays saved: ${escapeHtml(formatDate(workout.date))}</div>
+
+            <div class="hr"></div>
+
             <div class="label">Add Exercise</div>
             <div class="row wrap">
               <div style="flex:2;">
@@ -262,7 +285,7 @@
                   <div class="small">Add sets, then complete this exercise.</div>
                 </div>
                 <div style="max-width:160px;">
-                  <button class="btn" id="lastTimeBtn" style="text-align:center;" ${canShowLastTime(state, currentExercise.name, workout.id) ? "" : "disabled"}>Last time</button>
+                  <button class="btn" id="lastTimeBtn" style="text-align:center;" ${canShowLastTime(freshState, currentExercise.name, workout.id) ? "" : "disabled"}>Last time</button>
                 </div>
               </div>
 
@@ -313,6 +336,12 @@
         `,
       });
 
+      // Name input
+      const nameInput = document.getElementById("workoutName");
+      nameInput.oninput = () => {
+        updateWorkoutName(workout.id, nameInput.value);
+      };
+
       // Wire header buttons
       document.getElementById("backHome").onclick = () => nav("#home");
       document.getElementById("finishWorkout").onclick = () => {
@@ -323,7 +352,6 @@
 
       document.getElementById("discardDraft").onclick = () => {
         const st = loadState();
-        // remove the draft workout entirely
         st.workouts = st.workouts.filter(w => w.id !== workout.id);
         if (st.draftId === workout.id) st.draftId = null;
         saveState(st);
@@ -336,9 +364,9 @@
       startBtn.onclick = () => {
         const name = (input.value || "").trim();
         if (!name) return;
-        addExerciseToLibrary(loadState(), name); // add & persist
-        // refresh state in-memory too
-        state = loadState();
+
+        const st = loadState();
+        addExerciseToLibrary(st, name);
 
         currentExercise = { name, sets: [{ reps: "", weight: "" }] };
         lastTimeData = null;
@@ -346,15 +374,12 @@
         rerender();
       };
 
-      // If editing sets
       if (currentExercise) {
-        // Add set
         document.getElementById("addSet").onclick = () => {
           currentExercise.sets.push({ reps: "", weight: "" });
           rerender();
         };
 
-        // Remove set
         app.querySelectorAll("[data-remove-set]").forEach(btn => {
           btn.onclick = () => {
             const i = Number(btn.getAttribute("data-remove-set"));
@@ -364,7 +389,6 @@
           };
         });
 
-        // Update inputs
         app.querySelectorAll("input[data-set-reps]").forEach(el => {
           el.addEventListener("input", () => {
             const i = Number(el.getAttribute("data-set-reps"));
@@ -378,7 +402,6 @@
           });
         });
 
-        // Last time button
         const lastBtn = document.getElementById("lastTimeBtn");
         lastBtn.onclick = () => {
           const st = loadState();
@@ -393,21 +416,17 @@
           };
         }
 
-        // Complete exercise
         document.getElementById("completeExercise").onclick = () => {
-          // validate
           const cleanedSets = currentExercise.sets
             .map(s => ({ reps: toNumberOrNull(s.reps), weight: toNumberOrNull(s.weight) }))
             .filter(s => s.reps !== null || s.weight !== null);
 
-          // If user left blanks, still allow but prefer at least one set
           if (cleanedSets.length === 0) {
             currentExercise.sets = [{ reps: "", weight: "" }];
             rerender();
             return;
           }
 
-          // Enforce non-negative
           for (const s of cleanedSets) {
             if (s.reps !== null && s.reps < 0) return;
             if (s.weight !== null && s.weight < 0) return;
@@ -425,10 +444,6 @@
           });
 
           saveState(st);
-          // refresh local references
-          state = loadState();
-          const updated = state.workouts.find(x => x.id === workout.id);
-          workout.exercises = updated.exercises;
 
           currentExercise = null;
           lastTimeData = null;
@@ -443,14 +458,21 @@
   function renderHistory(state) {
     const completed = state.workouts
       .filter(w => w.status === "completed")
+      .map(normalizeWorkout)
       .sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
 
-    const listHtml = completed.map(w => `
-      <button class="btn item" data-open="${escapeAttr(w.id)}">
-        <h4>${escapeHtml(formatDate(w.date))}</h4>
-        <div class="meta">${(w.exercises || []).length} exercise(s)</div>
-      </button>
-    `).join("");
+    const listHtml = completed.map(w => {
+      const title = w.name ? w.name : formatDate(w.date);
+      const metaParts = [];
+      if (w.name) metaParts.push(formatDate(w.date));
+      metaParts.push(`${(w.exercises || []).length} exercise(s)`);
+      return `
+        <button class="btn item" data-open="${escapeAttr(w.id)}">
+          <h4>${escapeHtml(title)}</h4>
+          <div class="meta">${escapeHtml(metaParts.join(" • "))}</div>
+        </button>
+      `;
+    }).join("");
 
     shell({
       title: "History",
@@ -467,9 +489,7 @@
     });
 
     document.getElementById("backHome").onclick = () => nav("#home");
-
     document.getElementById("clearAll").onclick = () => {
-      // wipe everything
       localStorage.removeItem(LS_KEY);
       nav("#home");
     };
@@ -480,7 +500,7 @@
   }
 
   function renderWorkoutDetails(state, id) {
-    const w = state.workouts.find(x => x.id === id);
+    const w = normalizeWorkout(state.workouts.find(x => x.id === id));
     if (!w) return nav("#history");
 
     const exHtml = (w.exercises || []).map(ex => {
@@ -509,17 +529,25 @@
     }).join("");
 
     shell({
-      title: "Workout Details",
+      title: w.name ? w.name : "Workout Details",
       subtitle: formatDate(w.date),
       leftBtn: `<button class="btn" id="backHistory" style="padding:10px; text-align:center;">History</button>`,
       rightBtn: `<button class="btn danger" id="deleteWorkout" style="padding:10px; text-align:center;">Delete</button>`,
       body: `
         <div class="card">
+          <div class="label">Workout name (optional)</div>
+          <input id="detailsName" placeholder="e.g., Push Day" value="${escapeAttr(w.name || "")}" />
+          <div class="small" style="margin-top:6px;">Date: ${escapeHtml(formatDate(w.date))}</div>
+
+          <div class="hr"></div>
+
           <div class="row">
             <div class="pill">${escapeHtml(w.status === "completed" ? "Completed" : "Draft")}</div>
             <div class="pill">${(w.exercises || []).length} exercise(s)</div>
           </div>
+
           <div class="hr"></div>
+
           <div class="list">
             ${exHtml || `<div class="small">No exercises in this workout.</div>`}
           </div>
@@ -535,6 +563,11 @@
       if (st.draftId === id) st.draftId = null;
       saveState(st);
       nav("#history");
+    };
+
+    const detailsName = document.getElementById("detailsName");
+    detailsName.oninput = () => {
+      updateWorkoutName(id, detailsName.value);
     };
   }
 
